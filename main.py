@@ -1,12 +1,18 @@
 from fastapi import FastAPI
 from qdrant_client import QdrantClient
+import google.generativeai as genai
+import os
 
 app = FastAPI()
 
-QDRANT_URL = "https://d30aaf2b-635c-4835-aa2d-6da958f4b9bb.sa-east-1-0.aws.cloud.qdrant.io" 
-QDRANT_API_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhY2Nlc3MiOiJtIn0.DVJIVyYIiJIhkNwgDEHHhuIPzRo7FvHtZmUz7fIQ-lg"
+QDRANT_URL = os.getenv("QDRANT_URL")
+QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-client = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY)
+qdrant = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY)
+
+genai.configure(api_key=GEMINI_API_KEY)
+model = genai.GenerativeModel("gemini-1.5-flash")
 
 @app.get("/")
 def home():
@@ -14,5 +20,10 @@ def home():
 
 @app.get("/test-qdrant")
 def test_qdrant():
-    collections = client.get_collections().collections
+    collections = qdrant.get_collections().collections
     return {"collections": [c.name for c in collections]}
+
+@app.get("/test-llm")
+def test_llm():
+    response = model.generate_content("Explique em uma frase o que é IA")
+    return {"response": response.text}

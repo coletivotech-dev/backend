@@ -32,3 +32,47 @@ def test_llm():
         contents="Explique em uma frase o que é IA"
     )
     return {"response": response.text}
+
+@app.get("/ask")
+def ask(question: str):
+
+    embedding_response = client.models.embed_content(
+        model="text-embedding-004",
+        contents=question
+    )
+    embedding = embedding_response.embeddings[0].values
+
+    search_result = qdrant.search(
+        collection_name="dados",
+        query_vector=embedding,
+        limit=3
+    )
+
+    # 3. montar contexto
+    context = "\n\n".join([
+        hit.payload.get("content", "")
+        for hit in search_result
+    ])
+
+    # 4. montar prompt
+    prompt = f"""
+Responda com base no contexto abaixo. 
+Se não souber, diga que não encontrou a informação.
+
+Contexto:
+{context}
+
+Pergunta:
+{question}
+"""
+
+    # 5. chamar LLM
+    response = client.models.generate_content(
+        model="gemini-2.5-flash-lite",
+        contents=prompt
+    )
+
+    return {
+        "question": question,
+        "response": response.text
+    }

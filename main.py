@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from qdrant_client import QdrantClient
 from google import genai
+from sentence_transformers import SentenceTransformer
 import os
 
 app = FastAPI()
@@ -15,6 +16,8 @@ qdrant = QdrantClient(
 )
 
 client = genai.Client(api_key=GEMINI_API_KEY)
+
+embed_model = SentenceTransformer("BAAI/bge-m3")
 
 @app.get("/")
 def home():
@@ -36,11 +39,7 @@ def test_llm():
 @app.get("/ask")
 def ask(question: str):
 
-    embedding_response = client.models.embed_content(
-        model="text-embedding-004",
-        contents=question
-    )
-    embedding = embedding_response.embeddings[0].values
+    embedding = embed_model.encode(question).tolist()
 
     search_result = qdrant.search(
         collection_name="dados",
@@ -48,13 +47,11 @@ def ask(question: str):
         limit=3
     )
 
-    # 3. montar contexto
     context = "\n\n".join([
         hit.payload.get("content", "")
         for hit in search_result
     ])
 
-    # 4. montar prompt
     prompt = f"""
 Responda com base no contexto abaixo. 
 Se não souber, diga que não encontrou a informação.
@@ -66,7 +63,6 @@ Pergunta:
 {question}
 """
 
-    # 5. chamar LLM
     response = client.models.generate_content(
         model="gemini-2.5-flash-lite",
         contents=prompt

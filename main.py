@@ -62,10 +62,14 @@ def ask(question: str):
         with_payload=True
     )
 
-    context = "\n\n".join([
-        hit.payload.get("content", "")
-        for hit in search_result
-    ])
+    context_list = []
+    for hit in search_result:
+        if hit.payload and "content" in hit.payload:
+            context_list.append(hit.payload["content"])
+
+    context = "\n\n".join(context_list) if context_list else "Nenhuma informação encontrada na base."
+
+    return {"question": question, "context": context}
 
     prompt = f"""
 Responda com base no contexto abaixo. 

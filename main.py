@@ -1,5 +1,7 @@
 from fastapi import FastAPI
 from qdrant_client import QdrantClient
+from qdrant_client.http.models import SparseVector, FusionQuery, Fusion
+from qdrant_client.models import Prefetch
 from google import genai
 import os
 import requests
@@ -11,11 +13,7 @@ QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 HF_API_KEY = os.getenv("HF_API_KEY")
 
-qdrant = QdrantClient(
-    url=QDRANT_URL,
-    api_key=QDRANT_API_KEY
-)
-
+qdrant = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY)
 client = genai.Client(api_key=GEMINI_API_KEY)
 
 HF_MODEL_URL = "https://router.huggingface.co/hf-inference/models/BAAI/bge-m3/pipeline/feature-extraction"
@@ -29,11 +27,9 @@ def get_bge_embedding(text: str):
     response = requests.post(HF_MODEL_URL, headers=headers, json=payload)
     response.raise_for_status()
     result = response.json()
-
-    # bge-m3 retorna lista de listas (uma por token), precisamos do vetor [CLS] = primeiro
     if isinstance(result[0], list):
-        return result[0]  # vetor do token [CLS]
-    return result  # já é o vetor direto
+        return result[0]
+    return result
 
 @app.get("/")
 def home():
@@ -54,13 +50,25 @@ def test_llm():
 
 @app.get("/ask")
 def ask(question: str):
-    # 1. Gera embedding da pergunta com bge-m3 via HF
-    embedding = get_bge_embedding(question)
+    # 1. Gera vetor denso via HF
+    dense_vector = get_bge_embedding(question)
 
-    # 2. Busca no Qdrant
+    # 2. Busca híbrida: denso + esparso combinados com RRF
     search_result = qdrant.query_points(
         collection_name="dados",
-        query=embedding,
+        prefetch=[
+            Prefetch(
+                query=dense_vector,
+                using="dense",
+                limit=10
+            ),
+            Prefetch(
+                query=SparseVector(indices=[], values=[]),
+                using="sparse",
+                limit=10
+            )
+        ],
+        query=FusionQuery(fusion=Fusion.RRF),
         limit=3,
         with_payload=True
     ).points
@@ -73,7 +81,7 @@ def ask(question: str):
 
     context = "\n\n".join(context_list) if context_list else "Nenhuma informação encontrada na base."
 
-    # 4. Chama o Gemini com o contexto
+    # 4. Chama o Gemini
     prompt = f"""
 Responda com base no contexto abaixo.
 Se não souber, diga que não encontrou a informação.

@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from qdrant_client import QdrantClient
+from qdrant_client.http.models import ScoredPoint
 from google import genai
 import os
 import requests
@@ -25,10 +26,8 @@ def get_hf_embedding(text: str):
     payload = {"inputs": text}
     response = requests.post(HF_EMBED_URL, headers=headers, json=payload)
     response.raise_for_status()
-    # retorna vetor médio se a saída for tokenizada
     embedding = response.json()
-    if isinstance(embedding[0][0], list):  # se tiver dimensão extra
-        # média por token
+    if isinstance(embedding[0][0], list):
         embedding = [sum(x)/len(x) for x in zip(*embedding[0])]
     else:
         embedding = embedding[0]
@@ -47,7 +46,7 @@ def test_qdrant():
 def test_llm():
     response = client.models.generate_content(
         model="gemini-2.5-flash-lite",
-        contents="Explique em uma frase o que é IA"
+        contents="Explique em uma frase o que é a lua"
     )
     return {"response": response.text}
 
@@ -56,10 +55,11 @@ def ask(question: str):
 
     embedding = get_hf_embedding(question)
 
-    search_result = qdrant.search(
+    search_result = qdrant.search_points(
         collection_name="dados",
         query_vector=embedding,
-        limit=3
+        limit=3,
+        with_payload=True
     )
 
     context = "\n\n".join([
@@ -83,10 +83,6 @@ Pergunta:
         contents=prompt
     )
 
-    return {
-        "question": question,
-        "response": response.text
-    }
     return {
         "question": question,
         "response": response.text

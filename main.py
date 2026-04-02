@@ -3,8 +3,12 @@ from qdrant_client import QdrantClient
 from qdrant_client.http.models import SparseVector, FusionQuery, Fusion
 from qdrant_client.models import Prefetch
 from google import genai
+from pydantic import BaseModel
 import os
 import requests
+
+class AskRequest(BaseModel):
+    question: str
 
 app = FastAPI()
 
@@ -40,16 +44,9 @@ def test_qdrant():
     collections = qdrant.get_collections().collections
     return {"collections": [c.name for c in collections]}
 
-@app.get("/test-llm")
-def test_llm():
-    response = client.models.generate_content(
-        model="gemini-2.5-flash-lite",
-        contents="Para quando está prevista a nova onda de unicórnios?"
-    )
-    return {"response": response.text}
-
-@app.get("/ask")
-def ask(question: str):
+@app.post("/ask")
+def ask(body: AskRequest):
+    question = body.question
     # 1. Gera vetor denso via HF
     dense_vector = get_bge_embedding(question)
 
@@ -69,7 +66,7 @@ def ask(question: str):
             )
         ],
         query=FusionQuery(fusion=Fusion.RRF),
-        limit=3,
+        limit=5,
         with_payload=True
     ).points
 
@@ -77,14 +74,46 @@ def ask(question: str):
     context_list = []
     for hit in search_result:
         if hit.payload and "content" in hit.payload:
-            context_list.append(hit.payload["content"])
+            site = hit.payload.get("site", "")
+            date = hit.payload.get("date", "")
+            source = hit.payload.get("source", "")
+            conteudo = hit.payload["content"]
+            context_list.append(
+                f"Site: {site}\nData: {date}\nURL: {source}\nConteúdo: {conteudo}"
+            )
 
-    context = "\n\n".join(context_list) if context_list else "Nenhuma informação encontrada na base."
+    context = "\n\n---\n\n".join(context_list) if context_list else None
 
     # 4. Chama o Gemini
+    if not context:
+        return {
+            "response": "Nossa base de dados ainda não contempla informações sobre esse tema. Estamos sempre expandindo nosso acervo — tente reformular a pergunta ou explore outros tópicos relacionados."
+        }
+
     prompt = f"""
-Responda com base no contexto abaixo.
-Se não souber, diga que não encontrou a informação.
+Você é um jornalista especializado em negócios, tecnologia e sustentabilidade.
+Seu estilo é profissional e direto, com linguagem acessível mas sem perder a precisão — como uma boa reportagem da Harvard Business Review ou do MIT Technology Review em português.
+
+Regras que você deve seguir à risca:
+
+1. Responda EXCLUSIVAMENTE com base no contexto fornecido abaixo. Não acrescente informações externas, opiniões próprias ou dados que não estejam no contexto.
+
+2. Ao citar uma informação, mencione naturalmente a fonte pelo nome do site dentro do texto. Exemplos de como fazer isso:
+   - "De acordo com o Gartner, ..."
+   - "O MIT Technology Review aponta que ..."
+   - "Segundo levantamento do McKinsey, ..."
+   - "Ao observamos os dados do Fórum Econômico Mundial ..."
+
+3. Quando houver informações de períodos diferentes sobre o mesmo tema, use as datas para mostrar a evolução. Exemplo: "Em 2025, o Gartner indicava que... Já em 2026, a perspectiva mudou para..."
+
+4. Calibre o tamanho da resposta proporcionalmente à riqueza do contexto disponível:
+   - Contexto rico e variado: desenvolva bem os pontos em parágrafos completos.
+   - Contexto limitado ou repetitivo: seja conciso, sem forçar um texto longo.
+   - Em nenhum caso repita informações para preencher espaço.
+
+5. Organize a resposta de forma fluida, como um texto jornalístico — evite listas com marcadores sempre que possível. Prefira parágrafos bem construídos.
+
+5. Se o contexto não contiver informações suficientes para responder, diga exatamente isso: "Nossa base de dados ainda não contempla informações suficientes sobre esse tema. Estamos sempre expandindo nosso acervo — tente reformular a pergunta ou explore outros tópicos relacionados."
 
 Contexto:
 {context}
@@ -92,13 +121,12 @@ Contexto:
 Pergunta:
 {question}
 """
+
     response = client.models.generate_content(
         model="gemini-2.5-flash-lite",
         contents=prompt
     )
 
     return {
-        "question": question,
-        "context": context,
         "response": response.text
     }

@@ -3,14 +3,14 @@ from qdrant_client import QdrantClient
 from qdrant_client.http.models import ScoredPoint
 from google import genai
 import os
-import requests
+import openai
 
 app = FastAPI()
 
 QDRANT_URL = os.getenv("QDRANT_URL")
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-HUGGINGFACE_API_KEY = os.getenv("HUGGINGFACE_API_KEY")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 qdrant = QdrantClient(
     url=QDRANT_URL,
@@ -19,18 +19,14 @@ qdrant = QdrantClient(
 
 client = genai.Client(api_key=GEMINI_API_KEY)
 
-HF_EMBED_URL = "https://api-inference.huggingface.co/pipeline/feature-extraction/BAAI/bge-m3"
+openai.api_key = OPENAI_API_KEY
 
-def get_hf_embedding(text: str):
-    headers = {"Authorization": f"Bearer {HUGGINGFACE_API_KEY}"}
-    payload = {"inputs": text}
-    response = requests.post(HF_EMBED_URL, headers=headers, json=payload)
-    response.raise_for_status()
-    embedding = response.json()
-    if isinstance(embedding[0][0], list):
-        embedding = [sum(x)/len(x) for x in zip(*embedding[0])]
-    else:
-        embedding = embedding[0]
+def get_openai_embedding(text: str):
+    response = openai.Embeddings.create(
+        model="text-embedding-3-large",
+        input=text
+    )
+    embedding = response.data[0].embedding
     return embedding
 
 @app.get("/")
@@ -53,7 +49,7 @@ def test_llm():
 @app.get("/ask")
 def ask(question: str):
 
-    embedding = get_hf_embedding(question)
+    embedding = get_openai_embedding(question)
 
     search_result = qdrant.search_points(
         collection_name="dados",

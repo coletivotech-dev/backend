@@ -1,16 +1,15 @@
 from fastapi import FastAPI
 from qdrant_client import QdrantClient
-from qdrant_client.http.models import ScoredPoint
 from google import genai
 import os
-import openai
+import requests
 
 app = FastAPI()
 
 QDRANT_URL = os.getenv("QDRANT_URL")
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+HF_API_KEY = os.getenv("HF_API_KEY")
 
 qdrant = QdrantClient(
     url=QDRANT_URL,
@@ -19,15 +18,22 @@ qdrant = QdrantClient(
 
 client = genai.Client(api_key=GEMINI_API_KEY)
 
-openai.api_key = OPENAI_API_KEY
+HF_MODEL_URL = "https://router.huggingface.co/hf-inference/models/BAAI/bge-m3/pipeline/feature-extraction"
 
-def get_openai_embedding(text: str):
-    response = openai.Embeddings.create(
-        model="text-embedding-3-large",
-        input=text
-    )
-    embedding = response.data[0].embedding
-    return embedding
+def get_bge_embedding(text: str):
+    headers = {"Authorization": f"Bearer {HF_API_KEY}"}
+    payload = {
+        "inputs": text,
+        "options": {"wait_for_model": True}
+    }
+    response = requests.post(HF_MODEL_URL, headers=headers, json=payload)
+    response.raise_for_status()
+    result = response.json()
+
+    # bge-m3 retorna lista de listas (uma por token), precisamos do vetor [CLS] = primeiro
+    if isinstance(result[0], list):
+        return result[0]  # vetor do token [CLS]
+    return result  # já é o vetor direto
 
 @app.get("/")
 def home():
@@ -48,16 +54,18 @@ def test_llm():
 
 @app.get("/ask")
 def ask(question: str):
+    # 1. Gera embedding da pergunta com bge-m3 via HF
+    embedding = get_bge_embedding(question)
 
-    embedding = get_openai_embedding(question)
-
-    search_result = qdrant.search_points(
+    # 2. Busca no Qdrant
+    search_result = qdrant.search(
         collection_name="dados",
         query_vector=embedding,
         limit=3,
         with_payload=True
     )
 
+    # 3. Monta contexto
     context_list = []
     for hit in search_result:
         if hit.payload and "content" in hit.payload:
@@ -65,10 +73,9 @@ def ask(question: str):
 
     context = "\n\n".join(context_list) if context_list else "Nenhuma informação encontrada na base."
 
-    return {"question": question, "context": context}
-
+    # 4. Chama o Gemini com o contexto
     prompt = f"""
-Responda com base no contexto abaixo. 
+Responda com base no contexto abaixo.
 Se não souber, diga que não encontrou a informação.
 
 Contexto:
@@ -77,7 +84,6 @@ Contexto:
 Pergunta:
 {question}
 """
-
     response = client.models.generate_content(
         model="gemini-2.5-flash-lite",
         contents=prompt

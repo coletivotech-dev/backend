@@ -46,7 +46,7 @@ def test_qdrant():
 def test_llm():
     response = client.models.generate_content(
         model="gemini-2.5-flash-lite",
-        contents="Para quando está prevista a nova onde de unicórnios?"
+        contents="Para quando está prevista a nova onda de unicórnios?"
     )
     return {"response": response.text}
 

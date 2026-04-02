@@ -58,12 +58,12 @@ def ask(question: str):
     embedding = get_bge_embedding(question)
 
     # 2. Busca no Qdrant
-    search_result = qdrant.search(
+    search_result = qdrant.query_points(
         collection_name="dados",
-        query_vector=embedding,
+        query=embedding,
         limit=3,
         with_payload=True
-    )
+    ).points
 
     # 3. Monta contexto
     context_list = []

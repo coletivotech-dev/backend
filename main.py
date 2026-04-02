@@ -89,5 +89,6 @@ Pergunta:
 
     return {
         "question": question,
+        "context": context,
         "response": response.text
     }

@@ -99,7 +99,7 @@ def ask(body: AskRequest):
             "response": "Nossa base de dados ainda não contempla informações sobre esse tema. Estamos sempre expandindo nosso acervo — tente reformular a pergunta ou explore outros tópicos relacionados."
         }
 
-prompt = f"""
+    prompt = f"""
 Você é um jornalista especializado em negócios, tecnologia e sustentabilidade.
 Seu estilo é profissional e direto, com linguagem acessível mas sem perder a precisão — como uma boa reportagem da Harvard Business Review ou do MIT Technology Review em português.
 
